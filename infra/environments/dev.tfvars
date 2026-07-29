@@ -1,0 +1,11 @@
+aws_region                = "us-east-1"
+environment               = "dev"
+use_remote_network_state  = false
+use_remote_rds_state      = false
+use_vpc                   = false
+lambda_memory_size        = 512
+lambda_timeout            = 30
+lambda_runtime            = "provided.al2023"
+jwt_issuer                = "https://dev.repairshop.auth.com"
+adot_layer_arn            = ""
+otel_collector_endpoint   = "http://otel-collector.repairshop.local:4317"

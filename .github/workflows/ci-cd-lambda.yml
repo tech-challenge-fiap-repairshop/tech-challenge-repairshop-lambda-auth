@@ -1,0 +1,157 @@
+name: 🚀 AWS Lambda Auth CI/CD Pipeline
+
+on:
+  push:
+    branches: [ 'main' ]
+    paths:
+      - 'infra/**'
+      - 'src/**'
+      - 'pom.xml'
+      - '.github/workflows/ci-cd-lambda.yml'
+  pull_request:
+    branches: [ 'main' ]
+    paths:
+      - 'infra/**'
+      - 'src/**'
+      - 'pom.xml'
+      - '.github/workflows/ci-cd-lambda.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente de Deploy (prd, dev, hml)'
+        required: true
+        default: 'prd'
+        type: choice
+        options:
+          - prd
+          - dev
+          - hml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '24'
+  JAVA_DISTRIBUTION: 'temurin'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  # ==========================================================================
+  # JOB 1 — BUILD: Compilação do código Quarkus e execução dos testes em Java 24
+  # ==========================================================================
+  build:
+    name: "🏗️ Build & Test (Java 24)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Compile and Test Quarkus Application
+        run: mvn clean package -B -ntp
+
+  # ==========================================================================
+  # JOB 2 — TERRAFORM: Provisionamento e Deploy da Infraestrutura na AWS
+  # ==========================================================================
+  terraform:
+    name: "🛠️ Provision Infrastructure (Terraform)"
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'prd' }}
+    permissions:
+      contents: read
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'prd' }}
+      # Injeção automática de Secrets e Variáveis do GitHub Environment no Terraform via TF_VAR_*
+      TF_VAR_jwt_private_key: ${{ secrets.JWT_PRIVATE_KEY }}
+      TF_VAR_jwt_public_key: ${{ secrets.JWT_PUBLIC_KEY }}
+      TF_VAR_db_username: ${{ secrets.DB_USERNAME }}
+      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+      TF_VAR_db_url: ${{ secrets.DB_URL }}
+      TF_VAR_rds_proxy_endpoint: ${{ secrets.RDS_PROXY_ENDPOINT || vars.RDS_PROXY_ENDPOINT }}
+      TF_VAR_jwt_issuer: ${{ vars.JWT_ISSUER }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Build Lambda Package for Terraform
+        run: mvn clean package -B -ntp -DskipTests
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure S3 Bucket for Terraform State exists
+        run: |
+          BUCKET_NAME="fiap-repairshop2"
+          AWS_REGION="${{ env.AWS_REGION }}"
+          
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            echo "Bucket $BUCKET_NAME já existe."
+          else
+            echo "Bucket $BUCKET_NAME não existe. Criando..."
+            aws s3api create-bucket --bucket "$BUCKET_NAME" --region "$AWS_REGION"
+            aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
+            aws s3api put-bucket-encryption --bucket "$BUCKET_NAME" --server-side-encryption-configuration '{
+              "Rules": [
+                {
+                  "ApplyServerSideEncryptionByDefault": {
+                    "SSEAlgorithm": "AES256"
+                  }
+                }
+              ]
+            }'
+            aws s3api put-public-access-block --bucket "$BUCKET_NAME" --public-access-block-configuration '{
+              "BlockPublicAcls": true,
+              "IgnorePublicAcls": true,
+              "BlockPublicPolicy": true,
+              "RestrictPublicBuckets": true
+            }'
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+
+      - name: Terraform Init
+        run: |
+          cd infra
+          terraform init \
+            -backend-config="bucket=fiap-repairshop2" \
+            -backend-config="key=terraform-config/lambda-auth-tfstate/${ENV}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: Terraform Plan
+        run: |
+          cd infra
+          terraform plan -var-file="environments/${ENV}.tfvars"
+
+      - name: Terraform Apply (Somente na branch main ou disparo manual)
+        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+        run: |
+          cd infra
+          terraform apply -auto-approve -var-file="environments/${ENV}.tfvars"
