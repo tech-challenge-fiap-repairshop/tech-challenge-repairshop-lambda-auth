@@ -4,101 +4,43 @@ Repositório de **Autenticação Serverless (AWS Lambda)** da arquitetura Repair
 
 ## 🚀 Tecnologias
 
-- **Java 24**
-- **Quarkus 3.19.2**
-- **Quarkus Amazon Lambda HTTP** (`quarkus-amazon-lambda-http`)
-- **Quarkus Hibernate ORM Panache & PostgreSQL**
-- **SmallRye JWT** (`quarkus-smallrye-jwt`)
-- **Jakarta Bean Validation** (Anotações customizadas `@VerifyDocument` e `@VerifyEmail`)
-- **AWS RDS Proxy** (Multiplexação de Conexões de Banco Serverless)
-- **OpenTelemetry (ADOT Lambda Layer)**
+- **Java 21** (Managed Runtime nativo do AWS Lambda: `java21`)
+- **AWS Lambda Java Core & Events** (`com.amazonaws:aws-lambda-java-core`, `aws-lambda-java-events`)
+- **OpenFeign** (`feign-core`, `feign-jackson`) para chamadas HTTP
+- **Jackson Databind** para serialização / desserialização JSON
 - **Terraform >= 1.5.0** (Infraestrutura como Código)
 - **GitHub Actions** (Esteira CI/CD)
 
 ---
 
-## 🛢️ Arquitetura de Conexão via AWS RDS Proxy
+## 🛢️ Arquitetura e Integração via Feign Client
 
-Conforme as melhores práticas da AWS para aplicações Serverless/Lambda conectadas ao PostgreSQL RDS:
-
-### 1. **Separação de Infraestrutura & Ciclo de Vida**:
-- O **AWS RDS Proxy** possui um **endpoint fixo e permanente** (ex: `repairshop-proxy.proxy-xyz.us-east-1.rds.amazonaws.com`).
-- O RDS Proxy é provisionado **junto com a infraestrutura do Banco de Dados RDS**, pois é um recurso compartilhado que atende tanto a **Lambda Auth** quanto a aplicação principal **RepairShop App**.
-
-### 2. **Consumo Automático via Terraform Remote State**:
-- A função Lambda Auth não se conecta diretamente à porta bruta do PostgreSQL. Em seu lugar, ela se conecta ao RDS Proxy (`use_remote_rds_state = true`).
-- O nosso Terraform em [infra/main.tf](file:///c:/Users/Alexandre-AGAMIN/Projetos-%20FIAP/github-organizations-projects/tech-challenge-repairshop-lambda-auth/infra/main.tf) lê o endpoint do RDS Proxy automaticamente a partir do estado remoto do banco no S3 (`rds/${environment}.tfstate`):
-  ```hcl
-  DB_URL = "jdbc:postgresql://${local.rds_proxy_host}:5432/repairshop"
-  ```
-- O RDS Proxy reutiliza o pool de conexões e evita a exaustão de conexões no banco (`too many connections`) quando centenas de instâncias concorrentes da Lambda sobem na nuvem.
+Nesta nova versão, a Lambda de Autenticação foi desacoplada de conexões com banco de dados PostgreSQL/RDS.
+- A função Lambda recebe o evento clássico do **API Gateway Proxy** (`APIGatewayProxyRequestEvent`).
+- O handler (`AuthLambdaHandler`) extrai o payload de login (`email` e `password`) e utiliza o **OpenFeign Client** (`AuthClient`) para realizar a chamada HTTP para o endpoint `POST /auth/login` da aplicação principal (`tech-challenge-repairshop-app`).
+- O token JWT (ou resposta de erro) retornado pela aplicação principal é repassado ao cliente do API Gateway via `APIGatewayProxyResponseEvent`.
 
 ---
 
-## ☕ Suporte a Java 24 no AWS Lambda
+## 📌 Configuração de Ambiente
 
-O AWS Lambda oferece runtimes gerenciados padrão até o `java21`. Para utilizar o **Java 24** no Lambda com Quarkus:
-- Utilizamos o **Custom Runtime** (`runtime = "provided.al2023"`), onde o Quarkus é empacotado como um executável/runner otimizado.
-- Opcionalmente, pode ser gerado um binário nativo GraalVM (`mvn package -Dnative`), obtendo tempo de inicialização (*Cold Start*) de dezenas de milissegundos no runtime `provided.al2023`.
-
----
-
-## 🔑 Estratégia de Chaves JWT (Dev Local vs Produção AWS)
-
-1. **Desenvolvimento Local e Testes (`mvn test`)**:
-   - Os arquivos `src/main/resources/privateKey.pem` e `publicKey.pem` são chaves de teste estáticas mantidas na sua máquina local (e ignoradas no `.gitignore`).
-
-2. **Produção na AWS (GitHub Secrets)**:
-   - Cadastre as secrets no GitHub Repository/Environment (**Settings -> Environments -> `hml` / `prd`**):
-     - `JWT_PRIVATE_KEY`: Conteúdo PEM da chave privada real de produção.
-     - `JWT_PUBLIC_KEY`: Conteúdo PEM da chave pública real de produção.
-     - `DB_USERNAME`: Usuário do banco PostgreSQL / RDS Proxy.
-     - `DB_PASSWORD`: Senha do banco PostgreSQL / RDS Proxy.
-   - O pipeline do GitHub Actions injeta estas secrets no Terraform via variáveis `TF_VAR_*`, que por sua vez configura as variáveis de ambiente na AWS Lambda.
+A URL base da aplicação principal pode ser configurada via variável de ambiente:
+- **`APP_BASE_URL`**: URL da API principal (ex: `http://app.repairshop.local:8080` ou em dev local `http://host.docker.internal:8080`).
 
 ---
 
-## 📊 Observabilidade com OpenTelemetry (ADOT)
+## 🏗️ Compilação e Empacotamento
 
-O CloudWatch de aplicação não é utilizado para telemetria nesta Lambda. Em seu lugar, deixamos configurada a **AWS Distro for OpenTelemetry (ADOT) Lambda Layer**:
-- **Layer ARN**: `arn:aws:lambda:${var.aws_region}:901920570421:layer:aws-otel-java-wrapper-amd64-ver-1-32-0:1`
-- **Wrappers & Variáveis**:
-  - `AWS_LAMBDA_EXEC_WRAPPER = "/opt/otel-handler"`
-  - `OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector.repairshop.local:4317"`
-  - `OTEL_SERVICE_NAME = "repairshop-lambda-auth-${environment}"`
+O projeto utiliza o **`maven-shade-plugin`** para gerar o arquivo JAR executável completo (fat-jar):
 
----
+```bash
+mvn clean package
+```
 
-## 📌 Endpoints
-
-| Método | Rota             | Descrição                                 |
-| ------ | ---------------- | ----------------------------------------- |
-| `GET`  | `/auth/health`   | Health Check do Lambda                    |
-| `POST` | `/auth/login`    | Autenticação do cliente por CPF e emissão de JWT |
-| `POST` | `/auth/register` | Cadastro do cliente e emissão de JWT      |
-
----
-
-## 🏗️ Infraestrutura Terraform (`infra/`)
-
-A infraestrutura do Lambda está desacoplada e segregada por ambientes (`dev`, `hml`, `prd`).
-
-### Backend S3 (`infra/backend.tf`):
-- **Bucket S3**: `fiap-repairshop2`
-- **Key**: `terraform-config/lambda-auth-tfstate/${environment}/terraform.tfstate`
-- **Region**: `us-east-1`
+O artefato final é gerado em `target/function.jar`, pronto para deploy no runtime `java21` da AWS Lambda.
 
 ---
 
 ## 🤖 Esteira de CI/CD (GitHub Actions)
 
-O arquivo `.github/workflows/ci-cd-lambda.yml` está dividido em **2 Jobs independentes**:
-
-1. **`build` (Build & Test)**: Compila o projeto com JDK 24 e executa a suíte de testes do Quarkus.
-2. **`terraform` (Provision Infrastructure)**:
-   - Depende do sucesso do job `build` (`needs: build`).
-   - Carrega dinamicamente o ambiente (`hml` ou `prd`).
-   - Mapeia automaticamente as Secrets (`JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, `DB_USERNAME`, `DB_PASSWORD`) e Variables (`JWT_ISSUER`, `RDS_PROXY_ENDPOINT`) via `TF_VAR_*`.
-   - Garante a existência do Bucket S3 `fiap-repairshop2`.
-   - Inicializa o Terraform no backend S3 `terraform-config/lambda-auth-tfstate/${ENV}/terraform.tfstate`.
-   - Executa `terraform plan` (em PRs e pushes) e `terraform apply` (exclusivamente na branch `main` ou em disparos manuais).
+O pipeline `.github/workflows/ci-cd-lambda.yml` compila o projeto em Java 21, executa a suíte de testes unitários e realiza o provisionamento/deploy via Terraform.

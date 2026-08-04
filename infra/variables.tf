@@ -22,12 +22,6 @@ variable "use_remote_network_state" {
   default     = false
 }
 
-variable "use_remote_rds_state" {
-  description = "Se true, lê os dados de endpoint do RDS Proxy/PostgreSQL do estado remote do banco (rds/ENV.tfstate)"
-  type        = bool
-  default     = false
-}
-
 variable "use_vpc" {
   description = "Define se a função Lambda deve ser executada dentro da VPC"
   type        = bool
@@ -46,56 +40,10 @@ variable "vpc_security_group_ids" {
   default     = []
 }
 
-variable "jwt_issuer" {
-  description = "Issuer dos tokens JWT gerados pela Lambda de autenticação"
+variable "app_base_url" {
+  description = "URL base da API tech-challenge-repairshop-app para ser chamada via Feign Client"
   type        = string
-  default     = "https://repairshop.auth.com"
-}
-
-variable "jwt_lifespan_seconds" {
-  description = "Tempo de expiração dos tokens JWT em segundos"
-  type        = number
-  default     = 86400
-}
-
-variable "jwt_private_key" {
-  description = "Conteúdo PEM da chave privada RSA para assinatura JWT (injetado via Secret do GitHub Actions)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "jwt_public_key" {
-  description = "Conteúdo PEM da chave pública RSA para validação JWT (injetado via Secret do GitHub Actions)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "rds_proxy_endpoint" {
-  description = "Endpoint direto do AWS RDS Proxy (ex: rds-proxy-auth.cluster-xyz.us-east-1.rds.amazonaws.com)"
-  type        = string
-  default     = ""
-}
-
-variable "db_url" {
-  description = "URL completa do banco de dados PostgreSQL RDS / RDS Proxy"
-  type        = string
-  default     = ""
-}
-
-variable "db_username" {
-  description = "Usuário do banco de dados PostgreSQL RDS"
-  type        = string
-  default     = "repairshop"
-  sensitive   = true
-}
-
-variable "db_password" {
-  description = "Senha do banco de dados PostgreSQL RDS"
-  type        = string
-  default     = ""
-  sensitive   = true
+  default     = "http://app.repairshop.local:8081"
 }
 
 variable "lambda_memory_size" {
@@ -111,9 +59,9 @@ variable "lambda_timeout" {
 }
 
 variable "lambda_runtime" {
-  description = "Runtime da AWS Lambda (java21 para Managed Runtime ou provided.al2023 para Custom Runtime/Java 24/Quarkus Native)"
+  description = "Runtime da AWS Lambda (java21 para Java 21 Managed Runtime)"
   type        = string
-  default     = "provided.al2023"
+  default     = "java21"
 }
 
 variable "adot_layer_arn" {

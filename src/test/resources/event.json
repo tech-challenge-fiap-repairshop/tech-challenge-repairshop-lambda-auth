@@ -1,0 +1,19 @@
+{
+  "resource": "/auth/login",
+  "path": "/auth/login",
+  "httpMethod": "POST",
+  "headers": {
+    "Accept": "*/*",
+    "Content-Type": "application/json"
+  },
+  "queryStringParameters": null,
+  "pathParameters": null,
+  "stageVariables": null,
+  "requestContext": {
+    "resourcePath": "/auth/login",
+    "httpMethod": "POST",
+    "path": "/auth/login"
+  },
+  "body": "{\n  \"email\": \"carlos@repairshop.com\",\n  \"password\": \"secretpassword\"\n}",
+  "isBase64Encoded": false
+}

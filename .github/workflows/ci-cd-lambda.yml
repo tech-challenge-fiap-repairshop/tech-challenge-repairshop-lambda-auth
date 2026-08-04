@@ -32,16 +32,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JAVA_VERSION: '24'
+  JAVA_VERSION: '21'
   JAVA_DISTRIBUTION: 'temurin'
   AWS_REGION: 'us-east-1'
 
 jobs:
   # ==========================================================================
-  # JOB 1 — BUILD: Compilação do código Quarkus e execução dos testes em Java 24
+  # JOB 1 — BUILD: Compilação do código Java 21 e execução dos testes unitários
   # ==========================================================================
   build:
-    name: "🏗️ Build & Test (Java 24)"
+    name: "🏗️ Build & Test (Java 21)"
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,8 +57,14 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           cache: maven
 
-      - name: Compile and Test Quarkus Application
+      - name: Compile and Test Application
         run: mvn clean package -B -ntp
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: function-jar
+          path: target/function.jar
 
   # ==========================================================================
   # JOB 2 — TERRAFORM: Provisionamento e Deploy da Infraestrutura na AWS
@@ -73,28 +79,17 @@ jobs:
 
     env:
       ENV: ${{ github.event.inputs.environment || 'prd' }}
-      # Injeção automática de Secrets e Variáveis do GitHub Environment no Terraform via TF_VAR_*
-      TF_VAR_jwt_private_key: ${{ secrets.JWT_PRIVATE_KEY }}
-      TF_VAR_jwt_public_key: ${{ secrets.JWT_PUBLIC_KEY }}
-      TF_VAR_db_username: ${{ secrets.DB_USERNAME }}
-      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
-      TF_VAR_db_url: ${{ secrets.DB_URL }}
-      TF_VAR_rds_proxy_endpoint: ${{ secrets.RDS_PROXY_ENDPOINT || vars.RDS_PROXY_ENDPOINT }}
-      TF_VAR_jwt_issuer: ${{ vars.JWT_ISSUER }}
+      TF_VAR_app_base_url: ${{ secrets.APP_BASE_URL || vars.APP_BASE_URL }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
         with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: ${{ env.JAVA_DISTRIBUTION }}
-          cache: maven
-
-      - name: Build Lambda Package for Terraform
-        run: mvn clean package -B -ntp -DskipTests
+          name: function-jar
+          path: target/
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4

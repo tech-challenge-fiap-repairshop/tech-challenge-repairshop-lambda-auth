@@ -1,21 +1,10 @@
 locals {
   function_name   = "repairshop-lambda-auth-${var.environment}"
-  lambda_zip_path = "${path.module}/../target/function.zip"
+  lambda_zip_path = "${path.module}/../target/function.jar"
 
   is_in_vpc  = var.use_vpc || var.use_remote_network_state
   vpc_id     = var.use_remote_network_state ? try(data.terraform_remote_state.network[0].outputs.vpc_id, null) : null
   subnet_ids = var.use_remote_network_state ? try(data.terraform_remote_state.network[0].outputs.private_subnet_ids, var.vpc_subnet_ids) : var.vpc_subnet_ids
-
-  # Resolução do endpoint do AWS RDS Proxy / PostgreSQL
-  rds_proxy_host = var.rds_proxy_endpoint != "" ? var.rds_proxy_endpoint : (
-    var.use_remote_rds_state ? try(
-      data.terraform_remote_state.rds[0].outputs.rds_proxy_endpoint,
-      data.terraform_remote_state.rds[0].outputs.db_endpoint,
-      ""
-    ) : ""
-  )
-
-  final_db_url = local.rds_proxy_host != "" ? "jdbc:postgresql://${local.rds_proxy_host}:5432/repairshop" : var.db_url
 
   # Variáveis de ambiente dinâmicas para OpenTelemetry (ADOT Layer)
   otel_env_vars = var.adot_layer_arn != "" ? {
@@ -23,17 +12,6 @@ locals {
     OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_collector_endpoint
     OTEL_SERVICE_NAME           = local.function_name
     OTEL_PROPAGATORS            = "tracecontext,baggage"
-  } : {}
-
-  # Injeção dinâmica das chaves JWT de produção se fornecidas via Secret do GitHub Actions
-  jwt_sign_key_env_var   = var.jwt_private_key != "" ? { SMALLRYE_JWT_SIGN_KEY = var.jwt_private_key } : {}
-  jwt_verify_key_env_var = var.jwt_public_key != "" ? { MP_JWT_VERIFY_PUBLICKEY = var.jwt_public_key } : {}
-
-  # Injeção dinâmica das credenciais e URL do AWS RDS Proxy / PostgreSQL
-  db_env_vars = local.final_db_url != "" ? {
-    DB_URL      = local.final_db_url
-    DB_USERNAME = var.db_username
-    DB_PASSWORD = var.db_password
   } : {}
 }
 
@@ -45,18 +23,6 @@ data "terraform_remote_state" "network" {
   config = {
     bucket = var.s3_tfstate_bucket
     key    = "network/${var.environment}.tfstate"
-    region = var.aws_region
-  }
-}
-
-# Referência opcional ao estado da Infraestrutura do RDS / RDS Proxy
-data "terraform_remote_state" "rds" {
-  count   = var.use_remote_rds_state ? 1 : 0
-  backend = "s3"
-
-  config = {
-    bucket = var.s3_tfstate_bucket
-    key    = "rds/${var.environment}.tfstate"
     region = var.aws_region
   }
 }
@@ -105,11 +71,11 @@ resource "aws_security_group" "lambda_sg" {
   }
 }
 
-# Função AWS Lambda Quarkus com Suporte a OpenTelemetry (ADOT), Custom Runtime e RDS Proxy
+# Função AWS Lambda Java 21 com Feign Client
 resource "aws_lambda_function" "auth_lambda" {
   function_name = local.function_name
   role          = aws_iam_role.lambda_exec.arn
-  handler       = "io.quarkus.amazon.lambda.runtime.QuarkusStreamHandler::handleRequest"
+  handler       = "com.cao.repairshop.auth.infra.handler.AuthLambdaHandler::handleRequest"
   runtime       = var.lambda_runtime
   memory_size   = var.lambda_memory_size
   timeout       = var.lambda_timeout
@@ -117,7 +83,7 @@ resource "aws_lambda_function" "auth_lambda" {
   filename         = local.lambda_zip_path
   source_code_hash = fileexists(local.lambda_zip_path) ? filebase64sha256(local.lambda_zip_path) : null
 
-  # ADOT Lambda Layer para Coleta de Telemetria OpenTelemetry
+  # ADOT Lambda Layer para Coleta de Telemetria OpenTelemetry (opcional)
   layers = compact([var.adot_layer_arn])
 
   dynamic "vpc_config" {
@@ -134,15 +100,8 @@ resource "aws_lambda_function" "auth_lambda" {
   environment {
     variables = merge(
       {
-        DISABLE_SIGNAL_HANDLERS         = "true"
-        QUARKUS_PROFILE                 = var.environment
-        MP_JWT_VERIFY_ISSUER            = var.jwt_issuer
-        SMALLRYE_JWT_NEW_TOKEN_ISSUER   = var.jwt_issuer
-        SMALLRYE_JWT_NEW_TOKEN_LIFESPAN = tostring(var.jwt_lifespan_seconds)
+        APP_BASE_URL = var.app_base_url
       },
-      local.jwt_sign_key_env_var,
-      local.jwt_verify_key_env_var,
-      local.db_env_vars,
       local.otel_env_vars
     )
   }

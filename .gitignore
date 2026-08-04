@@ -10,3 +10,4 @@ target/
 
 /infra/.terraform.lock.hcl
 /infra/.terraform/
+/.aws-sam/
