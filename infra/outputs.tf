@@ -14,8 +14,8 @@ output "lambda_invoke_arn" {
 }
 
 output "lambda_role_arn" {
-  description = "ARN da IAM Role utilizada pela Lambda"
-  value       = aws_iam_role.lambda_exec.arn
+  description = "ARN da IAM Role utilizada pela Lambda (LabRole)"
+  value       = local.lab_role_arn
 }
 
 output "lambda_security_group_id" {

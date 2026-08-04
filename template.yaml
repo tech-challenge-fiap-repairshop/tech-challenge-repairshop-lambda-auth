@@ -10,6 +10,8 @@ Globals:
     Environment:
       Variables:
         APP_BASE_URL: "http://host.docker.internal:8081"
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://host.docker.internal:4318"
+        OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
 
 Resources:
   AuthFunction:

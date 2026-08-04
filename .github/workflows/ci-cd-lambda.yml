@@ -46,7 +46,7 @@ jobs:
 
     env:
       ENV: ${{ github.event.inputs.environment || 'prd' }}
-      TF_VAR_app_base_url: ${{ secrets.APP_BASE_URL || vars.APP_BASE_URL }}
+      TF_VAR_app_base_url: ${{ vars.APP_BASE_URL }}
 
     steps:
       - name: Checkout repository

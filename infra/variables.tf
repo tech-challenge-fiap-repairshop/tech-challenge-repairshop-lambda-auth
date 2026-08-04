@@ -16,8 +16,14 @@ variable "s3_tfstate_bucket" {
   default     = "fiap-repairshop2"
 }
 
+variable "remote_state_network_key" {
+  description = "Caminho da chave da state de rede infra-network no S3 (ex: network/dev.tfstate)"
+  type        = string
+  default     = ""
+}
+
 variable "use_remote_network_state" {
-  description = "Se true, lê os dados de VPC e Subnets do estado remote da rede base (network/ENV.tfstate)"
+  description = "Se true, lê os dados de VPC e Subnets do estado remoto da rede base (infra-network)"
   type        = bool
   default     = false
 }
@@ -26,6 +32,12 @@ variable "use_vpc" {
   description = "Define se a função Lambda deve ser executada dentro da VPC"
   type        = bool
   default     = false
+}
+
+variable "vpc_id" {
+  description = "ID da VPC (utilizado caso não esteja usando remote state)"
+  type        = string
+  default     = ""
 }
 
 variable "vpc_subnet_ids" {
@@ -40,10 +52,16 @@ variable "vpc_security_group_ids" {
   default     = []
 }
 
-variable "app_base_url" {
-  description = "URL base da API tech-challenge-repairshop-app para ser chamada via Feign Client"
+variable "lab_role_arn" {
+  description = "ARN da IAM Role (LabRole da AWS Academy). Se vazio, é construído dinamicamente a partir do account_id"
   type        = string
-  default     = "http://app.repairshop.local:8081"
+  default     = ""
+}
+
+variable "app_base_url" {
+  description = "URL base da API tech-challenge-repairshop-app para ser chamada via Feign Client na Cloud (Porta 8080)"
+  type        = string
+  default     = "http://app.repairshop.local:8080"
 }
 
 variable "lambda_memory_size" {
@@ -71,7 +89,7 @@ variable "adot_layer_arn" {
 }
 
 variable "otel_collector_endpoint" {
-  description = "Endpoint do OTel Collector Gateway para envio de métricas e traces (OTLP)"
+  description = "Endpoint do OTel Collector Gateway para envio via OTLP/HTTP (Porta 4318)"
   type        = string
-  default     = "http://otel-collector.repairshop.local:4317"
+  default     = "http://otel-collector.repairshop.local:4318"
 }
