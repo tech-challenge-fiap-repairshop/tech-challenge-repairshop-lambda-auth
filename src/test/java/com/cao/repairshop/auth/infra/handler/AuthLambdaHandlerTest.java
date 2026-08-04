@@ -3,9 +3,10 @@ package com.cao.repairshop.auth.infra.handler;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
-import com.cao.repairshop.auth.infra.client.AuthClient;
-import com.cao.repairshop.auth.infra.client.dto.AuthTokenResponseDTO;
-import com.cao.repairshop.auth.infra.client.dto.LoginRequestDTO;
+import com.cao.repairshop.auth.application.usecase.AuthenticateUseCase;
+import com.cao.repairshop.auth.domain.exception.ValidationException;
+import com.cao.repairshop.auth.domain.model.AuthToken;
+import com.cao.repairshop.auth.domain.model.Credentials;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import feign.FeignException;
@@ -17,7 +18,6 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -25,28 +25,28 @@ import static org.mockito.Mockito.*;
 
 class AuthLambdaHandlerTest {
 
-    private AuthClient mockAuthClient;
+    private AuthenticateUseCase mockAuthenticateUseCase;
     private ObjectMapper objectMapper;
     private AuthLambdaHandler handler;
     private Context mockContext;
 
     @BeforeEach
     void setUp() {
-        mockAuthClient = mock(AuthClient.class);
+        mockAuthenticateUseCase = mock(AuthenticateUseCase.class);
         objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        handler = new AuthLambdaHandler(mockAuthClient, objectMapper);
+        handler = new AuthLambdaHandler(mockAuthenticateUseCase, objectMapper);
         mockContext = mock(Context.class);
     }
 
     @Test
-    @DisplayName("Deve retornar HTTP 200 e Token quando as credenciais forem válidas")
-    void shouldReturn200AndTokenWhenCredentialsAreValid() {
+    @DisplayName("Deve retornar HTTP 200 e Token com Headers OWASP quando autenticar com sucesso")
+    void shouldReturn200AndTokenWhenAuthenticationSucceeds() {
         APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent()
                 .withBody("{\"email\":\"carlos@repairshop.com\",\"password\":\"secretpassword\"}");
 
-        AuthTokenResponseDTO expectedResponse = new AuthTokenResponseDTO("mocked-jwt-token");
-        when(mockAuthClient.login(any(LoginRequestDTO.class))).thenReturn(expectedResponse);
+        AuthToken authToken = new AuthToken("mocked-jwt-token");
+        when(mockAuthenticateUseCase.execute(any(Credentials.class))).thenReturn(authToken);
 
         APIGatewayProxyResponseEvent response = handler.handleRequest(request, mockContext);
 
@@ -54,23 +54,29 @@ class AuthLambdaHandlerTest {
         assertEquals(200, response.getStatusCode());
         assertTrue(response.getBody().contains("mocked-jwt-token"));
         assertEquals("application/json", response.getHeaders().get("Content-Type"));
+        assertEquals("nosniff", response.getHeaders().get("X-Content-Type-Options"));
+        assertEquals("DENY", response.getHeaders().get("X-Frame-Options"));
     }
 
     @Test
-    @DisplayName("Deve retornar HTTP 400 quando o corpo da requisição estiver vazio")
-    void shouldReturn400WhenBodyIsEmpty() {
-        APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent().withBody("");
+    @DisplayName("Deve retornar HTTP 400 com erro formatado quando a validação falhar")
+    void shouldReturn400WhenValidationFails() {
+        APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent()
+                .withBody("{\"email\":\"email-invalido\",\"password\":\"123\"}");
+
+        when(mockAuthenticateUseCase.execute(any(Credentials.class)))
+                .thenThrow(new ValidationException("O formato do e-mail informado é inválido."));
 
         APIGatewayProxyResponseEvent response = handler.handleRequest(request, mockContext);
 
         assertNotNull(response);
         assertEquals(400, response.getStatusCode());
-        assertTrue(response.getBody().contains("não pode ser vazio"));
+        assertTrue(response.getBody().contains("O formato do e-mail informado é inválido."));
     }
 
     @Test
-    @DisplayName("Deve retornar HTTP 401 quando o Feign retornar não autorizado (401)")
-    void shouldReturn401WhenFeignReturnsUnauthorized() {
+    @DisplayName("Deve retornar HTTP 401 quando o backend retornar 401 Unauthorized")
+    void shouldReturn401WhenBackendReturnsUnauthorized() {
         APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent()
                 .withBody("{\"email\":\"carlos@repairshop.com\",\"password\":\"wrongpassword\"}");
 
@@ -82,7 +88,8 @@ class AuthLambdaHandlerTest {
                 .body("{\"error\":\"Credenciais inválidas\"}", StandardCharsets.UTF_8)
                 .build();
 
-        when(mockAuthClient.login(any(LoginRequestDTO.class))).thenThrow(FeignException.errorStatus("login", feignResp));
+        when(mockAuthenticateUseCase.execute(any(Credentials.class)))
+                .thenThrow(FeignException.errorStatus("login", feignResp));
 
         APIGatewayProxyResponseEvent response = handler.handleRequest(request, mockContext);
 
@@ -92,17 +99,19 @@ class AuthLambdaHandlerTest {
     }
 
     @Test
-    @DisplayName("Deve retornar HTTP 500 quando ocorrer uma exceção genérica")
-    void shouldReturn500OnGenericException() {
+    @DisplayName("Deve retornar HTTP 500 sem expor detalhes internos em caso de exceção inesperada")
+    void shouldReturn500WithoutLeakingInternalDetailsOnUnexpectedError() {
         APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent()
                 .withBody("{\"email\":\"carlos@repairshop.com\",\"password\":\"secretpassword\"}");
 
-        when(mockAuthClient.login(any(LoginRequestDTO.class))).thenThrow(new RuntimeException("Conexão recusada"));
+        when(mockAuthenticateUseCase.execute(any(Credentials.class)))
+                .thenThrow(new RuntimeException("Banco inacessível"));
 
         APIGatewayProxyResponseEvent response = handler.handleRequest(request, mockContext);
 
         assertNotNull(response);
         assertEquals(500, response.getStatusCode());
-        assertTrue(response.getBody().contains("Erro interno no servidor"));
+        assertTrue(response.getBody().contains("Ocorreu um erro interno ao processar a autenticação."));
+        assertFalse(response.getBody().contains("Banco inacessível"));
     }
 }

@@ -4,100 +4,119 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
+import com.cao.repairshop.auth.application.usecase.AuthenticateUseCase;
+import com.cao.repairshop.auth.application.usecase.impl.AuthenticateUseCaseImpl;
+import com.cao.repairshop.auth.domain.exception.ValidationException;
+import com.cao.repairshop.auth.domain.model.AuthToken;
+import com.cao.repairshop.auth.domain.model.Credentials;
+import com.cao.repairshop.auth.infra.adapter.AuthFeignAdapter;
 import com.cao.repairshop.auth.infra.client.AuthClient;
-import com.cao.repairshop.auth.infra.client.dto.AuthTokenResponseDTO;
-import com.cao.repairshop.auth.infra.client.dto.LoginRequestDTO;
+import com.cao.repairshop.auth.infra.config.FeignConfig;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import feign.Feign;
 import feign.FeignException;
-import feign.Logger;
-import feign.jackson.JacksonDecoder;
-import feign.jackson.JacksonEncoder;
-import feign.slf4j.Slf4jLogger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Adaptador de Infraestrutura AWS Lambda (Primary Input Adapter).
+ * Recebe e sanitiza eventos HTTP do API Gateway, orquestra o caso de uso
+ * e retorna respostas formatadas com headers de segurança OWASP.
+ */
 public class AuthLambdaHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
-    private final AuthClient authClient;
+    private static final Logger log = LoggerFactory.getLogger(AuthLambdaHandler.class);
+
+    private final AuthenticateUseCase authenticateUseCase;
     private final ObjectMapper objectMapper;
 
     public AuthLambdaHandler() {
         this.objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-        String appBaseUrl = System.getenv("APP_BASE_URL");
-        if (appBaseUrl == null || appBaseUrl.isBlank()) {
-            appBaseUrl = System.getProperty("APP_BASE_URL");
-        }
-        if (appBaseUrl == null || appBaseUrl.isBlank()) {
-            appBaseUrl = resolveDefaultAppBaseUrl();
-        }
-        if (appBaseUrl.endsWith("/")) {
-            appBaseUrl = appBaseUrl.substring(0, appBaseUrl.length() - 1);
-        }
-
-        System.out.println("🌐 Initializing AuthClient targeting APP_BASE_URL: " + appBaseUrl);
-
-        this.authClient = Feign.builder()
-                .encoder(new JacksonEncoder(objectMapper))
-                .decoder(new JacksonDecoder(objectMapper))
-                .logger(new Slf4jLogger(AuthClient.class))
-                .logLevel(Logger.Level.BASIC)
-                .target(AuthClient.class, appBaseUrl);
+        String appBaseUrl = resolveAppBaseUrl();
+        AuthClient authClient = FeignConfig.createAuthClient(appBaseUrl, this.objectMapper);
+        AuthFeignAdapter feignAdapter = new AuthFeignAdapter(authClient);
+        
+        this.authenticateUseCase = new AuthenticateUseCaseImpl(feignAdapter);
     }
 
-    public AuthLambdaHandler(AuthClient authClient, ObjectMapper objectMapper) {
-        this.authClient = authClient;
+    public AuthLambdaHandler(AuthenticateUseCase authenticateUseCase, ObjectMapper objectMapper) {
+        this.authenticateUseCase = authenticateUseCase;
         this.objectMapper = objectMapper;
-    }
-
-    private String resolveDefaultAppBaseUrl() {
-        // Se estiver rodando dentro de um Container Docker (ex: AWS SAM CLI / AWS Lambda Container)
-        boolean isInsideDocker = new File("/.dockerenv").exists() 
-                || System.getenv("AWS_LAMBDA_FUNCTION_NAME") != null 
-                || System.getenv("LAMBDA_TASK_ROOT") != null;
-
-        if (isInsideDocker) {
-            return "http://host.docker.internal:8081";
-        } else {
-            return "http://localhost:8081";
-        }
     }
 
     @Override
     public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent input, Context context) {
-        Map<String, String> headers = createDefaultHeaders();
+        Map<String, String> headers = createSecurityHeaders();
 
         if (input == null || input.getBody() == null || input.getBody().isBlank()) {
-            return buildResponse(400, "{\"error\": \"Corpo da requisição não pode ser vazio\"}", headers);
+            return buildErrorResponse(400, "Bad Request", "O corpo da requisição não pode ser vazio.", headers);
         }
 
         try {
-            LoginRequestDTO loginRequest = objectMapper.readValue(input.getBody(), LoginRequestDTO.class);
-            System.out.println("🔑 Invoking /auth/login for email: " + loginRequest.getEmail());
+            CredentialsInput inputDto = objectMapper.readValue(input.getBody(), CredentialsInput.class);
+            Credentials credentials = new Credentials(inputDto.getEmail(), inputDto.getPassword());
 
-            AuthTokenResponseDTO tokenResponse = authClient.login(loginRequest);
+            log.info("🔑 Processando autenticação para o usuário: {}", credentials.getEmail());
 
-            String responseBody = objectMapper.writeValueAsString(tokenResponse);
-            return buildResponse(200, responseBody, headers);
+            AuthToken authToken = authenticateUseCase.execute(credentials);
+
+            Map<String, String> responseMap = new HashMap<>();
+            responseMap.put("token", authToken.getToken());
+
+            return buildResponse(200, objectMapper.writeValueAsString(responseMap), headers);
+
+        } catch (ValidationException e) {
+            log.warn("⚠️ Falha de validação defensiva: {}", e.getMessage());
+            return buildErrorResponse(400, "Bad Request", e.getMessage(), headers);
 
         } catch (FeignException e) {
             int status = e.status() > 0 ? e.status() : 500;
-            String errorMsg = e.contentUTF8();
-            System.err.println(String.format("❌ FeignException status %d: %s", status, errorMsg));
-            if (errorMsg == null || errorMsg.isBlank()) {
-                errorMsg = String.format("{\"error\": \"Falha na autenticação (HTTP %d): %s\"}", status, e.getMessage());
+            String feignBody = e.contentUTF8();
+            log.error("❌ FeignException status {}: {}", status, feignBody);
+
+            if (feignBody != null && !feignBody.isBlank() && feignBody.trim().startsWith("{")) {
+                return buildResponse(status, feignBody, headers);
             }
-            return buildResponse(status, errorMsg, headers);
+
+            String message = status == 401 ? "Credenciais inválidas." : "Erro na comunicação com a API de autenticação.";
+            return buildErrorResponse(status, status == 401 ? "Unauthorized" : "Bad Gateway", message, headers);
+
         } catch (Exception e) {
-            System.err.println("❌ Internal Error: " + e.getMessage());
-            String errorMsg = String.format("{\"error\": \"Erro interno no servidor: %s\"}", e.getMessage());
-            return buildResponse(500, errorMsg, headers);
+            log.error("❌ Erro não tratado na Lambda: {}", e.getMessage(), e);
+            return buildErrorResponse(500, "Internal Server Error", "Ocorreu um erro interno ao processar a autenticação.", headers);
         }
+    }
+
+    private String resolveAppBaseUrl() {
+        String appBaseUrl = System.getenv("APP_BASE_URL");
+        if (appBaseUrl == null || appBaseUrl.isBlank()) {
+            appBaseUrl = System.getProperty("APP_BASE_URL");
+        }
+
+        // Se estiver rodando em container Docker local (SAM CLI), "app.repairshop.local" não resolve no DNS local do Docker.
+        // O container precisa usar "host.docker.internal" para alcançar a porta 8081 da máquina host.
+        boolean isLocalSamDocker = new File("/.dockerenv").exists()
+                && (System.getenv("AWS_SAM_LOCAL") != null || System.getenv("LAMBDA_TASK_ROOT") != null)
+                && (appBaseUrl == null || appBaseUrl.isBlank() || appBaseUrl.contains("repairshop.local"));
+
+        if (isLocalSamDocker) {
+            appBaseUrl = "http://host.docker.internal:8081";
+        } else if (appBaseUrl == null || appBaseUrl.isBlank()) {
+            appBaseUrl = "http://localhost:8081";
+        }
+
+        if (appBaseUrl.endsWith("/")) {
+            appBaseUrl = appBaseUrl.substring(0, appBaseUrl.length() - 1);
+        }
+        log.info("🌐 Target Base URL: {}", appBaseUrl);
+        return appBaseUrl;
     }
 
     private APIGatewayProxyResponseEvent buildResponse(int statusCode, String body, Map<String, String> headers) {
@@ -107,12 +126,42 @@ public class AuthLambdaHandler implements RequestHandler<APIGatewayProxyRequestE
                 .withBody(body);
     }
 
-    private Map<String, String> createDefaultHeaders() {
+    private APIGatewayProxyResponseEvent buildErrorResponse(int statusCode, String error, String message, Map<String, String> headers) {
+        try {
+            Map<String, Object> errorPayload = new HashMap<>();
+            errorPayload.put("timestamp", Instant.now().toString());
+            errorPayload.put("status", statusCode);
+            errorPayload.put("error", error);
+            errorPayload.put("message", message);
+
+            return buildResponse(statusCode, objectMapper.writeValueAsString(errorPayload), headers);
+        } catch (Exception e) {
+            return buildResponse(statusCode, String.format("{\"status\":%d,\"error\":\"%s\",\"message\":\"%s\"}", statusCode, error, message), headers);
+        }
+    }
+
+    private Map<String, String> createSecurityHeaders() {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         headers.put("Access-Control-Allow-Origin", "*");
         headers.put("Access-Control-Allow-Headers", "Content-Type,Authorization");
         headers.put("Access-Control-Allow-Methods", "POST,OPTIONS");
+        // OWASP Security Headers
+        headers.put("X-Content-Type-Options", "nosniff");
+        headers.put("X-Frame-Options", "DENY");
+        headers.put("Cache-Control", "no-store, max-age=0");
+        headers.put("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
         return headers;
+    }
+
+    // DTO interno exclusivo para desserialização do payload de entrada da Lambda
+    private static class CredentialsInput {
+        private String email;
+        private String password;
+
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
     }
 }

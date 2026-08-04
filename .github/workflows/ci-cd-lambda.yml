@@ -37,14 +37,16 @@ env:
   AWS_REGION: 'us-east-1'
 
 jobs:
-  # ==========================================================================
-  # JOB 1 — BUILD: Compilação do código Java 21 e execução dos testes unitários
-  # ==========================================================================
-  build:
-    name: "🏗️ Build & Test (Java 21)"
+  deploy:
+    name: "🚀 Build, Test & Deploy (AWS Lambda)"
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'prd' }}
     permissions:
       contents: read
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'prd' }}
+      TF_VAR_app_base_url: ${{ secrets.APP_BASE_URL || vars.APP_BASE_URL }}
 
     steps:
       - name: Checkout repository
@@ -59,37 +61,6 @@ jobs:
 
       - name: Compile and Test Application
         run: mvn clean package -B -ntp
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: function-jar
-          path: target/function.jar
-
-  # ==========================================================================
-  # JOB 2 — TERRAFORM: Provisionamento e Deploy da Infraestrutura na AWS
-  # ==========================================================================
-  terraform:
-    name: "🛠️ Provision Infrastructure (Terraform)"
-    needs: build
-    runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'prd' }}
-    permissions:
-      contents: read
-
-    env:
-      ENV: ${{ github.event.inputs.environment || 'prd' }}
-      TF_VAR_app_base_url: ${{ secrets.APP_BASE_URL || vars.APP_BASE_URL }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: function-jar
-          path: target/
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
