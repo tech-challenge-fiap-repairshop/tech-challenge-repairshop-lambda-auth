@@ -57,7 +57,7 @@ public class LocalLambdaRunner {
                 .withHttpMethod("POST")
                 .withBody("""
                         {
-                            "email": "carlos@repairshop.com",
+                            "cpf": "52998224725",
                             "password": "secretpassword"
                         }
                         """);

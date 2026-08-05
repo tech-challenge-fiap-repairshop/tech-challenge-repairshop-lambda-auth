@@ -27,7 +27,7 @@ class AuthenticateUseCaseTest {
     @Test
     @DisplayName("Deve autenticar com sucesso quando as credenciais forem válidas")
     void shouldAuthenticateSuccessfullyWhenCredentialsAreValid() {
-        Credentials credentials = new Credentials("carlos@repairshop.com", "secret123");
+        Credentials credentials = new Credentials("52998224725", "secret123");
         AuthToken expectedToken = new AuthToken("valid-jwt-token");
 
         when(mockAuthGateway.authenticate(any(Credentials.class))).thenReturn(expectedToken);
@@ -40,9 +40,9 @@ class AuthenticateUseCaseTest {
     }
 
     @Test
-    @DisplayName("Deve falhar na validação sem acionar a porta AuthGateway se o e-mail for inválido")
+    @DisplayName("Deve falhar na validação sem acionar a porta AuthGateway se o CPF for inválido")
     void shouldFailValidationWithoutCallingGatewayWhenEmailIsInvalid() {
-        Credentials credentials = new Credentials("email-invalido", "secret123");
+        Credentials credentials = new Credentials("11111111111", "secret123");
 
         assertThrows(ValidationException.class, () -> useCase.execute(credentials));
         verify(mockAuthGateway, never()).authenticate(any());

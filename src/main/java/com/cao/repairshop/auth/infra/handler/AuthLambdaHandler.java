@@ -61,9 +61,14 @@ public class AuthLambdaHandler implements RequestHandler<APIGatewayProxyRequestE
 
         try {
             CredentialsInput inputDto = objectMapper.readValue(input.getBody(), CredentialsInput.class);
-            Credentials credentials = new Credentials(inputDto.getEmail(), inputDto.getPassword());
+            if (inputDto.getCpf() == null || inputDto.getCpf().isBlank()
+                    || inputDto.getPassword() == null || inputDto.getPassword().isBlank()) {
+                log.warn("⚠️ Payload de login incompleto: cpf ou password ausentes.");
+                return buildErrorResponse(400, "Bad Request", "Os campos 'cpf' e 'password' são obrigatórios.", headers);
+            }
+            Credentials credentials = new Credentials(inputDto.getCpf(), inputDto.getPassword());
 
-            log.info("🔑 Processando autenticação para o usuário: {}", credentials.getEmail());
+            log.info("🔑 Processando autenticação para o CPF: {}", credentials.getCpf());
 
             AuthToken authToken = authenticateUseCase.execute(credentials);
 
@@ -79,7 +84,7 @@ public class AuthLambdaHandler implements RequestHandler<APIGatewayProxyRequestE
         } catch (FeignException e) {
             int status = e.status() > 0 ? e.status() : 500;
             String feignBody = e.contentUTF8();
-            log.error("❌ FeignException status {}: {}", status, feignBody);
+            log.error("❌ FeignException status {}: {} (detalhes: {})", status, feignBody.isBlank() ? "Sem resposta da API" : feignBody, e.getMessage());
 
             if (feignBody != null && !feignBody.isBlank() && feignBody.trim().startsWith("{")) {
                 return buildResponse(status, feignBody, headers);
@@ -156,11 +161,11 @@ public class AuthLambdaHandler implements RequestHandler<APIGatewayProxyRequestE
 
     // DTO interno exclusivo para desserialização do payload de entrada da Lambda
     private static class CredentialsInput {
-        private String email;
+        private String cpf;
         private String password;
 
-        public String getEmail() { return email; }
-        public void setEmail(String email) { this.email = email; }
+        public String getCpf() { return cpf; }
+        public void setCpf(String cpf) { this.cpf = cpf; }
         public String getPassword() { return password; }
         public void setPassword(String password) { this.password = password; }
     }

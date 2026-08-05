@@ -10,27 +10,18 @@ import java.util.regex.Pattern;
  */
 public class InputValidator {
 
-    // Regex rigoroso baseado no RFC 5322 para validação de e-mails válidos
-    private static final Pattern EMAIL_PATTERN = Pattern.compile(
-            "^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,7}$"
-    );
-
     public static void validateCredentials(Credentials credentials) {
         if (credentials == null) {
             throw new ValidationException("O objeto de credenciais não pode ser nulo.");
         }
 
-        String email = credentials.getEmail();
-        if (email == null || email.isBlank()) {
-            throw new ValidationException("O campo 'email' é obrigatório.");
+        String cpf = credentials.getCpf();
+        if (cpf == null || cpf.isBlank()) {
+            throw new ValidationException("O campo 'cpf' é obrigatório.");
         }
 
-        if (email.length() > 255) {
-            throw new ValidationException("O campo 'email' não pode exceder 255 caracteres.");
-        }
-
-        if (!EMAIL_PATTERN.matcher(email).matches()) {
-            throw new ValidationException("O formato do e-mail informado é inválido.");
+        if (!isValidCpf(cpf)) {
+            throw new ValidationException("O formato do CPF informado é inválido.");
         }
 
         String password = credentials.getPassword();
@@ -40,6 +31,32 @@ public class InputValidator {
 
         if (password.length() > 100) {
             throw new ValidationException("O campo 'password' excede o tamanho máximo permitido.");
+        }
+    }
+
+    private static boolean isValidCpf(String cpf) {
+        if (cpf == null) return false;
+        String digitsOnly = cpf.replaceAll("\\D", "");
+        if (digitsOnly.length() != 11 || digitsOnly.matches("(\\d)\\1{10}")) {
+            return false;
+        }
+        try {
+            int d1 = 0, d2 = 0;
+            for (int i = 0; i < 9; i++) {
+                int digit = Character.getNumericValue(digitsOnly.charAt(i));
+                d1 += digit * (10 - i);
+                d2 += digit * (11 - i);
+            }
+            int r1 = 11 - (d1 % 11);
+            if (r1 >= 10) r1 = 0;
+            if (r1 != Character.getNumericValue(digitsOnly.charAt(9))) return false;
+
+            d2 += r1 * 2;
+            int r2 = 11 - (d2 % 11);
+            if (r2 >= 10) r2 = 0;
+            return r2 == Character.getNumericValue(digitsOnly.charAt(10));
+        } catch (Exception e) {
+            return false;
         }
     }
 }

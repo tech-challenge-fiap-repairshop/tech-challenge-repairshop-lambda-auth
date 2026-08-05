@@ -14,6 +14,6 @@
     "httpMethod": "POST",
     "path": "/auth/login"
   },
-  "body": "{\n  \"email\": \"carlos@repairshop.com\",\n  \"password\": \"secretpassword\"\n}",
+  "body": "{\n  \"cpf\": \"10039193675\",\n  \"password\": \"securePass123\"\n}",
   "isBase64Encoded": false
 }

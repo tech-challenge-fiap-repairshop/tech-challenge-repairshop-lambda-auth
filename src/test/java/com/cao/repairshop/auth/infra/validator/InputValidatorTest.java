@@ -12,9 +12,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class InputValidatorTest {
 
     @Test
-    @DisplayName("Deve aceitar credenciais válidas com e-mail bem formatado")
+    @DisplayName("Deve aceitar credenciais válidas com CPF bem formatado")
     void shouldAcceptValidCredentials() {
-        Credentials credentials = new Credentials("carlos@repairshop.com", "secret123");
+        Credentials credentials = new Credentials("52998224725", "secret123");
         assertDoesNotThrow(() -> InputValidator.validateCredentials(credentials));
     }
 
@@ -27,29 +27,19 @@ class InputValidatorTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"invalid-email", "user@", "@domain.com", "user@domain", "user@.com"})
-    @DisplayName("Deve lançar ValidationException para e-mails mal formatados")
-    void shouldThrowValidationExceptionForInvalidEmailFormats(String invalidEmail) {
-        Credentials credentials = new Credentials(invalidEmail, "secret123");
+    @ValueSource(strings = {"12345678901", "11111111111", "123456", "abcdefghijk"})
+    @DisplayName("Deve lançar ValidationException para CPFs mal formatados")
+    void shouldThrowValidationExceptionForInvalidCpfFormats(String invalidCpf) {
+        Credentials credentials = new Credentials(invalidCpf, "secret123");
         ValidationException exception = assertThrows(ValidationException.class,
                 () -> InputValidator.validateCredentials(credentials));
-        assertEquals("O formato do e-mail informado é inválido.", exception.getMessage());
-    }
-
-    @Test
-    @DisplayName("Deve lançar ValidationException para e-mail excedendo 255 caracteres")
-    void shouldThrowValidationExceptionForTooLongEmail() {
-        String longEmail = "a".repeat(245) + "@domain.com";
-        Credentials credentials = new Credentials(longEmail, "secret123");
-        ValidationException exception = assertThrows(ValidationException.class,
-                () -> InputValidator.validateCredentials(credentials));
-        assertEquals("O campo 'email' não pode exceder 255 caracteres.", exception.getMessage());
+        assertEquals("O formato do CPF informado é inválido.", exception.getMessage());
     }
 
     @Test
     @DisplayName("Deve lançar ValidationException para senha vazia")
     void shouldThrowValidationExceptionForBlankPassword() {
-        Credentials credentials = new Credentials("carlos@repairshop.com", "   ");
+        Credentials credentials = new Credentials("52998224725", "   ");
         ValidationException exception = assertThrows(ValidationException.class,
                 () -> InputValidator.validateCredentials(credentials));
         assertEquals("O campo 'password' é obrigatório.", exception.getMessage());

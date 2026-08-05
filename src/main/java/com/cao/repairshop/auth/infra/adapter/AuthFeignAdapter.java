@@ -20,7 +20,7 @@ public class AuthFeignAdapter implements AuthGateway {
 
     @Override
     public AuthToken authenticate(Credentials credentials) {
-        LoginRequestDTO requestDTO = new LoginRequestDTO(credentials.getEmail(), credentials.getPassword());
+        LoginRequestDTO requestDTO = new LoginRequestDTO(credentials.getCpf(), credentials.getPassword());
         
         AuthTokenResponseDTO responseDTO = authClient.login(requestDTO);
 

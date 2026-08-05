@@ -43,7 +43,7 @@ class AuthLambdaHandlerTest {
     @DisplayName("Deve retornar HTTP 200 e Token com Headers OWASP quando autenticar com sucesso")
     void shouldReturn200AndTokenWhenAuthenticationSucceeds() {
         APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent()
-                .withBody("{\"email\":\"carlos@repairshop.com\",\"password\":\"secretpassword\"}");
+                .withBody("{\"cpf\":\"52998224725\",\"password\":\"secretpassword\"}");
 
         AuthToken authToken = new AuthToken("mocked-jwt-token");
         when(mockAuthenticateUseCase.execute(any(Credentials.class))).thenReturn(authToken);
@@ -62,23 +62,23 @@ class AuthLambdaHandlerTest {
     @DisplayName("Deve retornar HTTP 400 com erro formatado quando a validação falhar")
     void shouldReturn400WhenValidationFails() {
         APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent()
-                .withBody("{\"email\":\"email-invalido\",\"password\":\"123\"}");
+                .withBody("{\"cpf\":\"11111111111\",\"password\":\"123\"}");
 
         when(mockAuthenticateUseCase.execute(any(Credentials.class)))
-                .thenThrow(new ValidationException("O formato do e-mail informado é inválido."));
+                .thenThrow(new ValidationException("O formato do CPF informado é inválido."));
 
         APIGatewayProxyResponseEvent response = handler.handleRequest(request, mockContext);
 
         assertNotNull(response);
         assertEquals(400, response.getStatusCode());
-        assertTrue(response.getBody().contains("O formato do e-mail informado é inválido."));
+        assertTrue(response.getBody().contains("O formato do CPF informado é inválido."));
     }
 
     @Test
     @DisplayName("Deve retornar HTTP 401 quando o backend retornar 401 Unauthorized")
     void shouldReturn401WhenBackendReturnsUnauthorized() {
         APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent()
-                .withBody("{\"email\":\"carlos@repairshop.com\",\"password\":\"wrongpassword\"}");
+                .withBody("{\"cpf\":\"52998224725\",\"password\":\"wrongpassword\"}");
 
         Request feignReq = Request.create(Request.HttpMethod.POST, "/auth/login", Collections.emptyMap(), null, StandardCharsets.UTF_8, null);
         Response feignResp = Response.builder()
@@ -102,7 +102,7 @@ class AuthLambdaHandlerTest {
     @DisplayName("Deve retornar HTTP 500 sem expor detalhes internos em caso de exceção inesperada")
     void shouldReturn500WithoutLeakingInternalDetailsOnUnexpectedError() {
         APIGatewayProxyRequestEvent request = new APIGatewayProxyRequestEvent()
-                .withBody("{\"email\":\"carlos@repairshop.com\",\"password\":\"secretpassword\"}");
+                .withBody("{\"cpf\":\"52998224725\",\"password\":\"secretpassword\"}");
 
         when(mockAuthenticateUseCase.execute(any(Credentials.class)))
                 .thenThrow(new RuntimeException("Banco inacessível"));

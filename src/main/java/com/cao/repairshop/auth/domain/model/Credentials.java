@@ -7,11 +7,11 @@ import lombok.Value;
  */
 @Value
 public class Credentials {
-    String email;
+    String cpf;
     String password;
 
-    public Credentials(String email, String password) {
-        this.email = email != null ? email.trim().toLowerCase() : null;
+    public Credentials(String cpf, String password) {
+        this.cpf = cpf != null ? cpf.trim() : null;
         this.password = password;
     }
 }

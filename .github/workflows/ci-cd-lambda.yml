@@ -39,6 +39,13 @@ env:
 jobs:
   deploy:
     name: "🚀 Build, Test & Deploy (AWS Lambda)"
+    if: |
+      !contains(github.event.head_commit.message, '[skip-ci]') &&
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      !contains(github.event.head_commit.message, '[ci skip]') &&
+      !contains(github.event.pull_request.title, '[skip-ci]') &&
+      !contains(github.event.pull_request.title, '[skip ci]') &&
+      !contains(github.event.pull_request.title, '[ci skip]')
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'prd' }}
     permissions:
