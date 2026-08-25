@@ -1,0 +1,10 @@
+aws_region               = "us-east-1"
+environment              = "dev"
+use_remote_network_state = false
+use_vpc                  = false
+lambda_memory_size       = 512
+lambda_timeout           = 30
+lambda_runtime           = "java21"
+app_base_url             = "http://dev-app.repairshop.local:8080"
+adot_layer_arn           = ""
+otel_collector_endpoint  = "http://otel-collector.repairshop.local:4318"

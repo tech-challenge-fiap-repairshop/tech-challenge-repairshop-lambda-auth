@@ -1,0 +1,27 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS SAM Template para simulação local da AWS Lambda Auth em Java 21 com Feign Client
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: java21
+    Environment:
+      Variables:
+        APP_BASE_URL: "http://host.docker.internal:8081"
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://host.docker.internal:4318"
+        OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+
+Resources:
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: com.cao.repairshop.auth.infra.handler.AuthLambdaHandler::handleRequest
+      CodeUri: .
+      Events:
+        LoginEvent:
+          Type: Api
+          Properties:
+            Path: /auth/login
+            Method: POST

@@ -1,0 +1,13 @@
+target/
+.mvn/
+.idea/
+*.iml
+*.log
+*.pem
+.env
+.ds_store
+.quarkus/
+
+/infra/.terraform.lock.hcl
+/infra/.terraform/
+/.aws-sam/
