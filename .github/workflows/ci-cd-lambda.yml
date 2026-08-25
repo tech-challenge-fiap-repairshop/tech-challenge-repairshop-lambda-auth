@@ -37,8 +37,11 @@ env:
   AWS_REGION: 'us-east-1'
 
 jobs:
-  deploy:
-    name: "🚀 Build, Test & Deploy (AWS Lambda)"
+  # =========================================================================
+  # JOB 1: Compilação, Testes Unitários e Empacotamento do Artefato (.jar)
+  # =========================================================================
+  build:
+    name: "🧪 Build & Test (Java/Maven)"
     if: |
       !contains(github.event.head_commit.message, '[skip-ci]') &&
       !contains(github.event.head_commit.message, '[skip ci]') &&
@@ -46,6 +49,46 @@ jobs:
       !contains(github.event.pull_request.title, '[skip-ci]') &&
       !contains(github.event.pull_request.title, '[skip ci]') &&
       !contains(github.event.pull_request.title, '[ci skip]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Compile and Test Application
+        run: mvn clean package -B -ntp
+
+      - name: Upload Lambda JAR Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-package
+          path: target/function.jar
+          retention-days: 1
+
+      - name: Generate Build Summary
+        if: always()
+        run: |
+          echo "## 🧪 Build & Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Parâmetro | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Java Version** | \`${{ env.JAVA_VERSION }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build Tool** | \`Maven\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status da Compilação / Testes** | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
+
+  # =========================================================================
+  # JOB 2: Provisionamento de Infraestrutura e Deploy na AWS via Terraform
+  # =========================================================================
+  deploy:
+    name: "🚀 Infrastructure & Deploy (Terraform)"
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: >-
@@ -76,15 +119,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+      - name: Download Lambda JAR Artifact
+        uses: actions/download-artifact@v4
         with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: ${{ env.JAVA_DISTRIBUTION }}
-          cache: maven
-
-      - name: Compile and Test Application
-        run: mvn clean package -B -ntp
+          name: lambda-package
+          path: target
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -175,14 +214,14 @@ jobs:
           fi
           terraform apply -auto-approve -var-file="environments/${ENV}.tfvars"
 
-      - name: Generate Pipeline Summary
+      - name: Generate Deploy Summary
         if: always()
         run: |
-          echo "## 🚀 AWS Lambda Auth CI/CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 AWS Lambda Auth Deploy Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Parâmetro | Valor |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
           echo "| **Ambiente Alvo** | \`${{ env.ENV }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Evento** | \`${{ github.event_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Branch / Ref** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Autor** | \`${{ github.actor }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Status da Execução** | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status do Deploy** | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
