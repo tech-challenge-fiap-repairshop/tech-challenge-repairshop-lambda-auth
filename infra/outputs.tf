@@ -19,6 +19,6 @@ output "lambda_role_arn" {
 }
 
 output "lambda_security_group_id" {
-  description = "ID do Security Group criado para a Lambda (se em VPC)"
-  value       = try(aws_security_group.lambda_sg[0].id, null)
+  description = "ID do Security Group utilizado pela Lambda (se em VPC)"
+  value       = try(local.security_group_ids[0], null)
 }

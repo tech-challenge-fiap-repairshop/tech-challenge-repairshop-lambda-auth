@@ -1,13 +1,38 @@
+# Maven build target
 target/
 .mvn/
+
+# IDEs and Editors
 .idea/
+.vscode/
 *.iml
+*.iws
+*.ipr
+*.swp
+*~
+*.bak
+
+# Logs and Credentials
 *.log
 *.pem
 .env
-.ds_store
-.quarkus/
 
-/infra/.terraform.lock.hcl
-/infra/.terraform/
-/.aws-sam/
+# AWS SAM & Local Run
+.aws-sam/
+.sam/
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
