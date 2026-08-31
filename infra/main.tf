@@ -12,6 +12,9 @@ locals {
   vpc_id     = var.use_remote_network_state ? try(data.terraform_remote_state.network[0].outputs.vpc_id, var.vpc_id) : var.vpc_id
   subnet_ids = var.use_remote_network_state ? try(data.terraform_remote_state.network[0].outputs.private_subnet_ids, var.vpc_subnet_ids) : var.vpc_subnet_ids
 
+  # Utiliza os Security Groups informados ou cria o Security Group local da Lambda
+  security_group_ids = length(var.vpc_security_group_ids) > 0 ? var.vpc_security_group_ids : aws_security_group.lambda_sg[*].id
+
   # Configuração do OpenTelemetry via OTLP/HTTP (Porta 4318)
   otel_env_vars = var.adot_layer_arn != "" ? {
     AWS_LAMBDA_EXEC_WRAPPER     = "/opt/otel-handler"
@@ -34,14 +37,15 @@ data "terraform_remote_state" "network" {
   }
 }
 
-# Security Group da Função Lambda (quando em VPC)
+# Security Group dedicado à Função Lambda quando em VPC
 resource "aws_security_group" "lambda_sg" {
-  count       = local.is_in_vpc && local.vpc_id != null && local.vpc_id != "" ? 1 : 0
+  count       = local.is_in_vpc && length(var.vpc_security_group_ids) == 0 && local.vpc_id != null && local.vpc_id != "" ? 1 : 0
   name        = "${local.function_name}-sg"
   description = "Security Group para a Lambda Auth do RepairShop (${var.environment})"
   vpc_id      = local.vpc_id
 
   egress {
+    description = "Saida para VPC e Internet (acesso ao Postgres RDS, APIs internas e telemetria)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -71,7 +75,7 @@ resource "aws_lambda_function" "auth_lambda" {
     for_each = local.is_in_vpc && length(local.subnet_ids) > 0 ? [1] : []
     content {
       subnet_ids         = local.subnet_ids
-      security_group_ids = compact(concat(aws_security_group.lambda_sg[*].id, var.vpc_security_group_ids))
+      security_group_ids = local.security_group_ids
     }
   }
 
