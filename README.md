@@ -28,23 +28,39 @@ A aplicação segue a divisão em camadas independentes de frameworks externos:
 
 ```mermaid
 flowchart TB
-    subgraph Drivers["🌐 Camada de Entrada & Infraestrutura (Infra / Driving Adapters)"]
-        APIGatewayEvent["AWS API Gateway Event\n(APIGatewayProxyRequestEvent)"]
-        Handler["AuthLambdaHandler\n(Implementa RequestHandler)"]
-        Validator["InputValidator\n(Validação de CPF & Payload)"]
+    %% Definições de Estilo
+    classDef driverStyle fill:#E1F5FE,stroke:#0288D1,stroke-width:2px,color:#01579B
+    classDef coreStyle fill:#EDE7F6,stroke:#512DA8,stroke-width:2px,color:#311B92
+    classDef adapterStyle fill:#FFF8E1,stroke:#F57F17,stroke-width:2px,color:#BF360C
+    classDef domainStyle fill:#E8F5E9,stroke:#2E7D32,stroke-width:1.5px,color:#1B5E20
+    classDef tagStyle fill:#FFFFFF,stroke:#78909C,stroke-width:1px,stroke-dasharray: 2 2,color:#37474F
+
+    subgraph Drivers["🌐 Camada de Entrada e Infraestrutura (Driving Adapters)"]
+        direction TB
+        TagDrivers["🏷️ Handlers Lambda & Validadores de Entrada"]:::tagStyle
+        APIGatewayEvent["🚪 AWS API Gateway Event\n(APIGatewayProxyRequestEvent)"]:::driverStyle
+        Handler["⚙️ AuthLambdaHandler\n(Implementa RequestHandler)"]:::driverStyle
+        Validator["🛡️ InputValidator\n(Validação de CPF & Payload)"]:::driverStyle
+        TagDrivers ~~~ APIGatewayEvent
     end
 
     subgraph ApplicationCore["🧠 Núcleo da Aplicação (Application Core)"]
-        UseCase["AuthenticateUseCase\n(Interface de Caso de Uso)"]
-        UseCaseImpl["AuthenticateUseCaseImpl\n(Regras de Negócio de Autenticação)"]
-        AuthGatewayPort["AuthGateway\n(Porta de Saída)"]
-        DomainModels["Modelos de Domínio:\n• Credentials (CPF, Senha)\n• AuthToken (JWT)"]
+        direction TB
+        TagCore["🏷️ Casos de Uso & Entidades de Domínio"]:::tagStyle
+        UseCase["📋 AuthenticateUseCase\n(Interface de Caso de Uso)"]:::coreStyle
+        UseCaseImpl["⚡ AuthenticateUseCaseImpl\n(Regras de Autenticação)"]:::coreStyle
+        AuthGatewayPort["🔌 AuthGateway\n(Porta de Saída)"]:::coreStyle
+        DomainModels["📦 Modelos de Domínio:\n• Credentials (CPF, Senha)\n• AuthToken (JWT Token)"]:::domainStyle
+        TagCore ~~~ UseCase
     end
 
-    subgraph DrivenAdapters["🔌 Camada de Saída & Clientes (Driven Adapters)"]
-        AuthFeignAdapter["AuthFeignAdapter\n(Implementa AuthGateway)"]
-        AuthClient["AuthClient\n(OpenFeign HTTP Client)"]
-        BackendApp["🚀 Backend Principal (Spring Boot EKS)\nPOST /auth/login"]
+    subgraph DrivenAdapters["🔌 Camada de Saída e Clientes Externos (Driven Adapters)"]
+        direction TB
+        TagAdapters["🏷️ Integração HTTP Feign com Backend EKS"]:::tagStyle
+        AuthFeignAdapter["🔄 AuthFeignAdapter\n(Implementa AuthGateway)"]:::adapterStyle
+        AuthClient["🌐 AuthClient\n(OpenFeign HTTP Client)"]:::adapterStyle
+        BackendApp["☸️ Backend Principal (EKS Pods)\nPOST /auth/login"]:::adapterStyle
+        TagAdapters ~~~ AuthFeignAdapter
     end
 
     APIGatewayEvent --> Handler
@@ -119,18 +135,27 @@ A esteira automatizada está configurada em [`.github/workflows/ci-cd-lambda.yml
 
 ```mermaid
 flowchart TD
-    A["🎯 Trigger (Push/PR branches: main, homolog, dev ou Workflow Dispatch)"] --> B["☕ Set up JDK 21 (Temurin)"]
-    B --> C["🧪 Maven Clean Package & Testes Unitários (pom.xml)"]
-    C --> D["📦 Upload do Artefato Fat-JAR (target/function.jar)"]
-    D --> E["⚙️ Setup AWS Credentials (LabRole)"]
-    E --> F["📦 Ensure S3 Bucket fiap-repairshop2"]
-    F --> G["🌐 Check Remote Network State (network/${ENV}.tfstate)"]
-    G --> H["🔍 Terraform Format Check & Init (lambda-auth/${ENV}.tfstate)"]
-    H --> I["📝 Terraform Plan (Validação com environments/${ENV}.tfvars)"]
-    I --> J{"🌿 Branch é main ou Dispatch Manual?"}
-    J -- "Sim" --> K["🚀 Terraform Apply (-auto-approve)"]
-    J -- "Não (PR / Homolog)" --> L["✅ Relatório de Validação"]
-    K --> M["📊 GitHub Step Summary (Métricas da Execução)"]
+    classDef triggerStyle fill:#E1F5FE,stroke:#0288D1,stroke-width:2px,color:#01579B
+    classDef stepStyle fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,color:#4A148C
+    classDef gateStyle fill:#FFF9C4,stroke:#FBC02D,stroke-width:2px,color:#F57F17
+    classDef deployStyle fill:#E8F5E9,stroke:#388E3C,stroke-width:2px,color:#1B5E20
+    classDef reportStyle fill:#ECEFF1,stroke:#455A64,stroke-width:2px,color:#263238
+
+    A["🎯 Disparo / Trigger\n• Push ou PR (main, homolog, dev)\n• Workflow Dispatch Manual"]:::triggerStyle
+    A --> B["☕ Configuração do JDK 21\n(Eclipse Temurin / Cache Maven)"]:::stepStyle
+    B --> C["🧪 Build Maven & Testes Unitários\n(mvn clean package -B -ntp)"]:::stepStyle
+    C --> D["📦 Geração do Artefato Fat-JAR\n(target/function.jar)"]:::stepStyle
+    D --> E["⚙️ Autenticação AWS\n(Configure AWS Credentials / IAM LabRole)"]:::stepStyle
+    E --> F["📦 Garantia do Bucket S3\n(Verifica/Cria fiap-repairshop2)"]:::stepStyle
+    F --> G["🌐 Validação do Estado da Rede\n(Remote State: network/${ENV}.tfstate)"]:::stepStyle
+    G --> H["⚡ Terraform Format Check & Init\n(lambda-auth/${ENV}.tfstate)"]:::stepStyle
+    H --> I["📝 Geração do Plano\n(terraform plan -var-file=environments/${ENV}.tfvars)"]:::stepStyle
+    I --> J{"🌿 Branch é 'main' com Push\nou Dispatch Manual?"}:::gateStyle
+    
+    J -- "✅ Sim (Deploy Aprovado)" --> K["🚀 Terraform Apply\n(terraform apply -auto-approve)"]:::deployStyle
+    J -- "🛡️ Não (PR ou Homologação)" --> L["📋 Modo Dry-Run / Plan Only\n(Validação de Código e Recursos)"]:::reportStyle
+    
+    K --> M["📊 GitHub Step Summary\n(Status da Execução e Métricas)"]:::reportStyle
     L --> M
 ```
 
@@ -155,6 +180,33 @@ flowchart TD
 > **Motivação Técnica:**
 > 1. **Execução Enxuta e Rápida:** A compilação do micro-artefato Java e o deploy via Terraform levam menos de 2 minutos no total.
 > 2. **Economia de Minutos na Conta:** O uso eficiente de cache do Maven (`cache: maven`) e a eliminação de passos redundantes reduzem drasticamente o uso da cota mensal gratuita de runners.
+
+---
+
+## 🔀 Governança de Branches e Ciclo de Promoção (Git Flow)
+
+A governança do repositório segue isolamento estrito com aprovação controlada para promoção de ambientes:
+
+```mermaid
+flowchart LR
+    classDef branchDev fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#0D47A1
+    classDef branchHml fill:#FFF3E0,stroke:#FB8C00,stroke-width:2px,color:#E65100
+    classDef branchMain fill:#E8F5E9,stroke:#43A047,stroke-width:2px,color:#1B5E20
+    classDef gateStyle fill:#FFEBEE,stroke:#E53935,stroke-width:2px,color:#B71C1C
+
+    Dev["🌿 Feature / Fix / Chore\n(feat/*, fix/*, chore/*)"]:::branchDev
+    PR_HML{"Pull Request\npara homolog"}:::gateStyle
+    HML["🛡️ Branch homolog\n(Ambiente hml / Validação)"]:::branchHml
+    PR_MAIN{"Pull Request\npara main"}:::gateStyle
+    Main["🚀 Branch main\n(Deploy em Produção)"]:::branchMain
+
+    Dev -->|"Abertura de PR"| PR_HML
+    PR_HML -->|"Validação & Merge"| HML
+    HML -->|"Abertura de PR de Promoção"| PR_MAIN
+    PR_MAIN -->|"Aprovação Manual Obrigatória"| Main
+```
+
+> ⚠️ **Regra de Governança:** É expressamente proibido commit ou push direto na branch `main`. Toda alteração deve passar pelo pipeline de validação e aprovação formal.
 
 ---
 
