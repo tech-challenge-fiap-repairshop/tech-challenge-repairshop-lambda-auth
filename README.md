@@ -4,6 +4,10 @@
 [![AWS Lambda](https://img.shields.io/badge/AWS-Lambda%20Java21-FF9900?logo=awslambda&logoColor=white)](https://aws.amazon.com/lambda/)
 [![Clean Architecture](https://img.shields.io/badge/Architecture-Clean%20%2F%20Hexagonal-informational)](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
 [![OpenFeign](https://img.shields.io/badge/OpenFeign-HTTP%20Client-6DB33F)](https://github.com/OpenFeign/feign)
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-OTel%20Collector-4B5563?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
+[![Grafana](https://img.shields.io/badge/Grafana-Observability%20Dashboard-F46800?logo=grafana&logoColor=white)](https://grafana.com/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![Loki](https://img.shields.io/badge/Grafana%20Loki-Logs-F46800?logo=grafana&logoColor=white)](https://grafana.com/oss/loki/)
 [![Terraform](https://img.shields.io/badge/Terraform-1.8.5+-844FBA?logo=terraform&logoColor=white)](https://www.terraform.io/)
 [![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
 
@@ -95,6 +99,137 @@ flowchart TB
   "cpf": "12345678900"
 }
 ```
+
+---
+
+## 📊 Observabilidade Serverless: OpenTelemetry, Prometheus, Loki e Grafana
+
+A função Lambda foi desenhada dentro dos padrões de **Observabilidade Cloud Native (OpenTelemetry / Three Pillars of Observability)**, garantindo telemetria completa (Métricas, Logs e Rastreamento Distribuído) com visualização unificada no **Grafana**.
+
+### 🔄 Arquitetura de Extração e Fluxo de Telemetria
+
+```mermaid
+flowchart TD
+    %% Estilos
+    classDef lambdaStyle fill:#FFF3E0,stroke:#FB8C00,stroke-width:2px,color:#E65100
+    classDef otelStyle fill:#EDE7F6,stroke:#512DA8,stroke-width:2px,color:#311B92
+    classDef storeStyle fill:#E1F5FE,stroke:#0288D1,stroke-width:2px,color:#01579B
+    classDef vizStyle fill:#FCE4EC,stroke:#C2185B,stroke-width:2px,color:#880E4F
+
+    subgraph LambdaLayer["⚡ AWS Lambda (repairshop-lambda-auth)"]
+        Handler["⚙️ AuthLambdaHandler\n(Java 21 Runtime)"]:::lambdaStyle
+        ADOT["🛡️ AWS Distro for OpenTelemetry (ADOT)\n/opt/otel-handler | OTLP Protobuf"]:::lambdaStyle
+        Logback["📜 SLF4J / Jackson JSON Logging\n(Structured Logs)"]:::lambdaStyle
+    end
+
+    subgraph Collector["🛰️ OpenTelemetry Collector (Cluster EKS / Gateway)"]
+        OTelEndpoint["📥 OTLP Receiver (:4318 HTTP / :4317 gRPC)"]:::otelStyle
+        Processors["⚙️ Batch & Memory Limiter Processors"]:::otelStyle
+        Exporters["📤 Prometheus, Loki & OTLP Exporters"]:::otelStyle
+    end
+
+    subgraph BackendStorage["💾 Armazenamento de Telemetria"]
+        Prometheus["📊 Prometheus (:9090)\nMétricas de Invocação, Erros & Latência"]:::storeStyle
+        Loki["📜 Grafana Loki (:3100)\nLogs Estruturados & Eventos JSON"]:::storeStyle
+        Jaeger["🔍 Jaeger (:16686)\nTraces Distribuídos & Spans"]:::storeStyle
+    end
+
+    subgraph Visualization["📈 Camada de Visualização & SLA"]
+        Grafana["🖥️ Grafana Dashboard (:3000)\nUID: repairshop-lambda-auth"]:::vizStyle
+    end
+
+    Handler --> ADOT
+    Handler --> Logback
+    ADOT -->|"OTLP HTTP (Port 4318)\nTraces & Métricas"| OTelEndpoint
+    Logback -->|"JSON Logs via OTLP / CW"| OTelEndpoint
+    OTelEndpoint --> Processors --> Exporters
+    Exporters -->|"Remote Write / Scrape"| Prometheus
+    Exporters -->|"Push OTLP/Loki"| Loki
+    Exporters -->|"gRPC Traces"| Jaeger
+    Prometheus -->|"PromQL"| Grafana
+    Loki -->|"LogQL"| Grafana
+    Jaeger -->|"TraceID Correlation"| Grafana
+```
+
+---
+
+### 1. 📈 Extração de Métricas (OpenTelemetry ➔ Prometheus ➔ Grafana)
+
+A camada **ADOT (AWS Distro for OpenTelemetry)** e os coletores exportam os *Golden Signals* do ambiente Serverless para o **Prometheus**:
+
+| Métrica Coletada | Origem / Instrumentação | Expressão PromQL Utilizada no Grafana | Propósito Operacional |
+| :--- | :--- | :--- | :--- |
+| **Total Invocations** | OTel / CloudWatch Lambda Metric | `sum(aws_lambda_invocations_sum{function_name=~"repairshop-lambda-auth.*"}) or sum(http_server_requests_seconds_count{uri=~"/auth/login.*"})` | Mede a vazão instantânea de tentativas de login. |
+| **Error Rate (%)** | OTel Errors Counter | `(sum(rate(aws_lambda_errors_sum[5m])) / (sum(rate(aws_lambda_invocations_sum[5m])) or vector(1))) * 100` | Taxa de falhas de autenticação com thresholds dinâmicos (Verde <1%, Amarelo 1-5%, Vermelho >5%). |
+| **Avg Execution Duration** | OTel Duration Histogram | `avg(aws_lambda_duration_milliseconds_sum / (aws_lambda_duration_milliseconds_count or vector(1)))` | Latência média do ciclo completo da Lambda em milissegundos. |
+| **Throttles** | AWS Lambda Concurrency Metric | `sum(aws_lambda_throttles_sum{function_name=~"repairshop-lambda-auth.*"})` | Alerta imediato sobre estouro de cota ou concorrência esgotada da função. |
+| **Tacômetro de SLA (%)** | Prometheus Composite Gauge | `100 - ((sum(rate(aws_lambda_errors_sum[5m])) / (sum(rate(aws_lambda_invocations_sum[5m])) or vector(1))) * 100)` | Tacômetro de visualização imediata do SLA de disponibilidade (Target: 99.0%). |
+| **Percentis de Latência (p50, p95, p99)** | OTel Histogram Bucket | `histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{uri=~"/auth/login.*"}[1m]))) * 1000` | Avalia o comportamento de cauda (*tail latency*) e impacto de *cold starts* em p99. |
+| **Downstream HTTP Latency** | Feign Client OpenTelemetry Span | `avg(http_server_requests_seconds_sum{uri=~"/auth/login.*"} / (http_server_requests_seconds_count{uri=~"/auth/login.*"} or vector(1))) * 1000` | Isola o tempo de roundtrip da chamada Feign ao backend EKS do tempo total da Lambda. |
+| **Concurrent Containers** | OTel Concurrency Gauge | `sum(aws_lambda_concurrent_executions_sum{function_name=~"repairshop-lambda-auth.*"})` | Número de instâncias/containers quentes em execução simultânea. |
+
+---
+
+### 2. 📜 Extração e Ingestão de Logs (SLF4J ➔ OpenTelemetry ➔ Grafana Loki)
+
+O `AuthLambdaHandler` utiliza logs estruturados em formato JSON com mascaramento estrito de dados sensíveis (conformidade com a LGPD):
+
+1. **Mascaramento e Sanitização Defensiva:**
+   - O CPF é registrado apenas com o formato sanitizado de auditoria (`123.***.***-00`), impedindo vazamento de dados de identificação pessoal em logs abertos.
+   - Credenciais e senhas **nunca** são escritas em log (`Credentials.password` nunca entra nas interpolações SLF4J).
+2. **Encaminhamento para o Grafana Loki:**
+   - O OTel Collector formata as linhas de log com tags indexadas (`job="repairshop-lambda-auth"`, `environment="prd"`, `level="INFO|WARN|ERROR"`).
+   - O Grafana permite consulta via **LogQL**:
+     ```logql
+     # Consulta geral de logs estruturados em JSON
+     {job=~"repairshop.*|.*auth.*"} | json
+
+     # Filtro exclusivo de falhas e erros operacionais
+     {job=~".*auth.*"} |= "❌"
+
+     # Filtro de avisos de validação defensiva (ex: CPF com formato inválido)
+     {job=~".*auth.*"} |= "⚠️"
+     ```
+
+---
+
+### 3. 🔍 Rastreamento Distribuído (Distributed Tracing via W3C TraceContext)
+
+Para garantir visibilidade ponta a ponta quando um cliente solicita autenticação, a Lambda atua como o primeiro nó da cadeia de execução distribuída:
+
+```text
+[Cliente / API Gateway]
+        │
+        ▼ (POST /auth/login)
+[AWS Lambda (AuthLambdaHandler)]  <── Inicia o Trace (Gera TraceID & SpanID)
+        │
+        │ Injeta cabeçalho: "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        ▼ via OpenFeign HTTP Client
+[Backend Core App (Pods EKS)]     <── Continua o Trace (Child Span)
+        │
+        ▼
+[PostgreSQL Database (RDS)]       <── SQL Query Span
+```
+
+- **Propagação de Contexto:** Configurado nativamente via `OTEL_PROPAGATORS="tracecontext,baggage"`.
+- **Correlação Biunívoca:** No Grafana, ao inspecionar uma linha de log com erro no Loki, o operador clica diretamente em **"View Trace"** e é direcionado para a árvore completa no **Jaeger**, permitindo identificar se a lentidão ocorreu no runtime da Lambda (ex: *cold start*), na rede da VPC ou na consulta SQL downstream.
+
+---
+
+### 4. 🎛️ Dashboard Operacional no Grafana (`repairshop-lambda-auth`)
+
+O ecossistema disponibiliza o dashboard pronto para uso importado automaticamente no Grafana:
+
+- **Dashboard UID:** `repairshop-lambda-auth`
+- **Arquivo de Origem:** [`tech-challenge-repairshop-app/observability/grafana/dashboards/repairshop-lambda-auth.json`](https://github.com/fiap-postech-repairshop/tech-challenge-repairshop-app/blob/main/observability/grafana/dashboards/repairshop-lambda-auth.json)
+- **Provisionamento Declarativo no EKS:** Mapeado automaticamente através do ConfigMap `grafana-dashboards-config` ([`k8s/configs/grafana-dashboards-config.yaml`](https://github.com/fiap-postech-repairshop/tech-challenge-repairshop-app/blob/main/k8s/configs/grafana-dashboards-config.yaml)).
+
+#### Painéis Disponíveis no Dashboard:
+1. **Serverless Golden Signals:** Cards de status em tempo real com Total Invocations, Error Rate (%), Avg Execution Duration (ms) e Throttles.
+2. **Tacômetros de Performance:** Indicadores circulares (*Gauges*) para Invocations Success Rate (%) e Duração de Execução com limites operacionais pré-estabelecidos.
+3. **Curvas de Percentil de Latência (p50, p95, p99):** Gráficos temporais para identificação de oscilações e degradação de performance.
+4. **Isolamento de Latência Downstream:** Comparativo entre o tempo gasto no processamento interno da Lambda e o roundtrip do Feign Client para a API principal.
+5. **Painel Interativo de Logs ao Vivo (Loki):** Console de logs em tempo real integrado, permitindo expandir detalhes de JSON, filtrar mensagens e saltar diretamente para os traces correlacionados.
 
 ---
 
