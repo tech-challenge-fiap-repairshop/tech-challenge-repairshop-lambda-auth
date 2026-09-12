@@ -23,6 +23,24 @@ locals {
     OTEL_SERVICE_NAME           = local.function_name
     OTEL_PROPAGATORS            = "tracecontext,baggage"
   } : {}
+
+  # URL base da aplicação: utiliza dinamicamente o DNS do Load Balancer na porta 8080 caso encontrado, ou o fallback de var.app_base_url
+  resolved_app_base_url = try(data.aws_lb.app_k8s[0].dns_name, "") != "" ? "http://${data.aws_lb.app_k8s[0].dns_name}:8080" : var.app_base_url
+}
+
+# -----------------------------------------------------------------------------
+# Busca Dinâmica Segura na AWS: Localiza o Load Balancer criado pelo Kubernetes (EKS)
+# Utiliza aws_lbs (plural) para não lançar erro fatal caso o EKS/LB já tenha sido destruído
+# -----------------------------------------------------------------------------
+data "aws_lbs" "app_k8s" {
+  tags = {
+    "kubernetes.io/service-name" = "${var.k8s_namespace}/${var.k8s_service_name}"
+  }
+}
+
+data "aws_lb" "app_k8s" {
+  count = var.use_dynamic_lb_lookup && length(data.aws_lbs.app_k8s.arns) > 0 ? 1 : 0
+  arn   = tolist(data.aws_lbs.app_k8s.arns)[0]
 }
 
 # Referência ao estado remoto da Infraestrutura de Rede Base (infra-network)
@@ -81,7 +99,7 @@ resource "aws_lambda_function" "auth_lambda" {
 
   environment {
     variables = merge(
-      { APP_BASE_URL = var.app_base_url },
+      { APP_BASE_URL = local.resolved_app_base_url },
       local.otel_env_vars
     )
   }
