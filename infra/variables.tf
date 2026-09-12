@@ -64,6 +64,24 @@ variable "app_base_url" {
   default     = "http://app.repairshop.local:8080"
 }
 
+variable "use_dynamic_lb_lookup" {
+  description = "Se true, busca o Load Balancer na AWS via tag do Kubernetes service para configurar APP_BASE_URL"
+  type        = bool
+  default     = true
+}
+
+variable "k8s_namespace" {
+  description = "Namespace do Kubernetes onde o service da aplicação foi criado"
+  type        = string
+  default     = "repairshop"
+}
+
+variable "k8s_service_name" {
+  description = "Nome do Service do Kubernetes (type: LoadBalancer) da aplicação"
+  type        = string
+  default     = "repairshop-service"
+}
+
 variable "lambda_memory_size" {
   description = "Quantidade de memória alocada para a função Lambda em MB"
   type        = number
