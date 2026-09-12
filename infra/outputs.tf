@@ -22,3 +22,8 @@ output "lambda_security_group_id" {
   description = "ID do Security Group utilizado pela Lambda (se em VPC)"
   value       = try(local.security_group_ids[0], null)
 }
+
+output "app_base_url" {
+  description = "URL base da aplicação configurada na Lambda Auth"
+  value       = local.resolved_app_base_url
+}
