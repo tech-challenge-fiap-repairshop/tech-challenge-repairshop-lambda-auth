@@ -281,7 +281,7 @@ flowchart TD
     B --> C["🧪 Build Maven & Testes Unitários\n(mvn clean package -B -ntp)"]:::stepStyle
     C --> D["📦 Geração do Artefato Fat-JAR\n(target/function.jar)"]:::stepStyle
     D --> E["⚙️ Autenticação AWS\n(Configure AWS Credentials / IAM LabRole)"]:::stepStyle
-    E --> F["📦 Garantia do Bucket S3\n(Verifica/Cria fiap-repairshop2)"]:::stepStyle
+    E --> F["📦 Garantia do Bucket S3\n(Verifica/Cria fiap-repairshop-{ACCOUNT_ID})"]:::stepStyle
     F --> G["🌐 Validação do Estado da Rede\n(Remote State: network/${ENV}.tfstate)"]:::stepStyle
     G --> H["⚡ Terraform Format Check & Init\n(lambda-auth/${ENV}.tfstate)"]:::stepStyle
     H --> I["📝 Geração do Plano\n(terraform plan -var-file=environments/${ENV}.tfvars)"]:::stepStyle
@@ -342,7 +342,7 @@ Para que a pipeline de CI/CD execute a compilação Java e o provisionamento da 
 | `AWS_REGION` | Pipeline `env` / Terraform | `us-east-1` | Região da AWS para deploy da função Lambda. |
 | `JAVA_VERSION` | Pipeline `env` | `21` | Versão do OpenJDK para compilação do fat-JAR. |
 | `APP_BASE_URL` | `environments/*.tfvars` | DNS interno EKS | Endpoint base da API principal para chamadas do Feign Client. |
-| `S3_TFSTATE_BUCKET` | Backend S3 / Workflow | `fiap-repairshop2` | Bucket S3 para armazenamento do estado `lambda-auth/${ENV}.tfstate`. |
+| `S3_TFSTATE_BUCKET` | Backend S3 / Workflow | `fiap-repairshop-{ACCOUNT_ID}` | Bucket S3 para armazenamento do estado `lambda-auth/${ENV}.tfstate`. |
 
 ---
 
@@ -392,7 +392,7 @@ mvn test -Dtest=LocalLambdaRunner
 cd infra
 
 terraform init \
-  -backend-config="bucket=fiap-repairshop2" \
+  -backend-config="bucket=fiap-repairshop-{ACCOUNT_ID}" \
   -backend-config="key=lambda-auth/dev.tfstate" \
   -backend-config="region=us-east-1"
 
