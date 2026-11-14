@@ -78,7 +78,7 @@ variable "k8s_namespace" {
 variable "k8s_service_name" {
   description = "Nome do Service do Kubernetes (type: LoadBalancer) da aplicação"
   type        = string
-  default     = "repairshop-service"
+  default     = "register-service"
 }
 
 variable "lambda_memory_size" {
