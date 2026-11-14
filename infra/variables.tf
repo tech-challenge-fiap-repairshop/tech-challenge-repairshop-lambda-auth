@@ -13,7 +13,6 @@ variable "environment" {
 variable "s3_tfstate_bucket" {
   description = "Nome do Bucket S3 centralizado para controle de estado do Terraform"
   type        = string
-  default     = "fiap-repairshop2"
 }
 
 variable "remote_state_network_key" {
